@@ -72,6 +72,12 @@ func (mb *MetricBlock) Marshal(dst []byte) []byte {
 	return MarshalBlock(dst, &mb.Block)
 }
 
+// MarshalV7 marshals MetricBlock to dst at v7 api version
+func (mb *MetricBlock) MarshalV7(dst []byte) []byte {
+	dst = encoding.MarshalBytes(dst, mb.MetricName)
+	return MarshalBlock(dst, &mb.Block)
+}
+
 // CopyFrom copies src to mb.
 func (mb *MetricBlock) CopyFrom(src *MetricBlock) {
 	mb.MetricName = append(mb.MetricName[:0], src.MetricName...)

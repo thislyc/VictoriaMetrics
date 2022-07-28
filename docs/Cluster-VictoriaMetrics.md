@@ -427,7 +427,6 @@ By default `vminsert` tries to route all the samples for a single time series to
 - modified data cannot be changed with back-filling.
 - modified data must be sent to `vminsert` component.
 - only json-line format is supported.
-- modification request must contain at least 2 data points, single point modification not allowed.
 
  How it works:
 * Export series for modification with `/api/v1/export/prometheus` from `vmselect`.

@@ -16,8 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/VictoriaMetrics/VictoriaMetrics/lib/decimal"
-
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmselect/searchutils"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/bytesutil"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/cgroup"
@@ -397,7 +395,7 @@ var unpackBatchSize = 5000
 // keeps order by Timestamps
 func mergeResult(dst, update *Result) {
 	// ignore timestamps with not enough points
-	if len(dst.Timestamps) < 2 {
+	if len(dst.Timestamps) == 0 || len(update.Timestamps) == 0 {
 		return
 	}
 
@@ -406,6 +404,14 @@ func mergeResult(dst, update *Result) {
 	firstUpdateTs := update.Timestamps[0]
 	lastUpdateTs := update.Timestamps[len(update.Timestamps)-1]
 
+	// edge case, update single data point
+	if len(update.Timestamps) == 1 {
+		pos := position(dst.Timestamps, firstUpdateTs)
+		if dst.Timestamps[pos] == firstUpdateTs {
+			dst.Values[pos] = update.Values[0]
+		}
+		return
+	}
 	// check lower bound
 	if firstUpdateTs < firstDstTs {
 		// fast path
@@ -625,42 +631,11 @@ func (pts *packedTimeseries) Unpack(dst *Result, tbf *tmpBlocksFile, tr storage.
 		for _, seriesUpdateSbs := range seriesUpdateSbss {
 			updateDst.reset()
 			mergeSortBlocks(&updateDst, seriesUpdateSbs, dedupInterval)
-			maybeAddStaleMarkers(&updateDst, tr)
 			mergeResult(dst, &updateDst)
 		}
 	}
 
 	return nil
-}
-
-// maybeAddStaleMarkers adds staleness markers to the updated series
-// it must handle the case, when updated series get only 1 point at the border of TimeRage
-// if series closer to Max TimeRange - add staleMarker to the end
-// if series closer to Min TimeRange - add staleMarker to the begging
-func maybeAddStaleMarkers(dst *Result, tr storage.TimeRange) {
-	if len(dst.Timestamps) > 1 {
-		// fast path
-		return
-	}
-	firstTs := dst.Timestamps[0]
-	firstValue := dst.Values[0]
-	lastTs := tr.MaxTimestamp
-	lastValue := decimal.StaleNaN
-
-	maxDiff := abs(tr.MaxTimestamp - dst.Timestamps[0])
-	minDiff := abs(tr.MinTimestamp - dst.Timestamps[0])
-	// change the order, if timestamp closer to the min TimeRange
-	if minDiff < maxDiff {
-		firstTs, lastTs = tr.MinTimestamp, firstTs
-		firstValue, lastValue = lastValue, firstValue
-	}
-	dst.Timestamps = append(dst.Timestamps[:0], firstTs, lastTs)
-	dst.Values = append(dst.Values[:0], firstValue, lastValue)
-}
-
-func abs(x int64) int64 {
-	n := x >> 63
-	return (x ^ n) - n
 }
 
 func getSortBlock() *sortBlock {
@@ -1876,7 +1851,7 @@ func (sn *storageNode) processSearchQuery(qt *querytracer.Tracer, requestData []
 		}
 		return nil
 	}
-	return sn.execOnConnWithPossibleRetry(qt, "search_v7", f, deadline)
+	return sn.execOnConnWithPossibleRetry(qt, "search_v8", f, deadline)
 }
 
 func (sn *storageNode) execOnConnWithPossibleRetry(qt *querytracer.Tracer, funcName string, f func(bc *handshake.BufferedConn) error, deadline searchutils.Deadline) error {

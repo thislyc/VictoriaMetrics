@@ -1,7 +1,6 @@
 package seriesupdate
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -48,9 +47,6 @@ func insertRows(at *auth.Token, rows []parser.Row) error {
 	generationID := generateUniqueGenerationID()
 	for i := range rows {
 		r := &rows[i]
-		if len(r.Timestamps) < 2 {
-			return fmt.Errorf("series modification request must contain at least 2 data points, only: %d was found", len(r.Timestamps))
-		}
 		rowsTotal += len(r.Values)
 		ctx.Labels = ctx.Labels[:0]
 		for j := range r.Tags {

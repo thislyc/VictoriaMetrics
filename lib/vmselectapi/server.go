@@ -473,6 +473,8 @@ func (s *Server) processRequest(ctx *vmselectRequestCtx) error {
 func (s *Server) processRPC(ctx *vmselectRequestCtx, rpcName string) error {
 	switch rpcName {
 	case "search_v7":
+		return s.processSearchV7(ctx)
+	case "search_v8":
 		return s.processSearch(ctx)
 	case "searchMetricNames_v3":
 		return s.processSearchMetricNames(ctx)
@@ -889,6 +891,54 @@ func (s *Server) processSearch(ctx *vmselectRequestCtx) error {
 		}
 
 		ctx.dataBuf = ctx.mb.Marshal(ctx.dataBuf[:0])
+
+		if err := ctx.writeDataBufBytes(); err != nil {
+			return fmt.Errorf("cannot send MetricBlock: %w", err)
+		}
+	}
+	if err := bi.Error(); err != nil {
+		return fmt.Errorf("search error: %w", err)
+	}
+	ctx.qt.Printf("sent %d blocks to vmselect", blocksRead)
+
+	// Send 'end of response' marker
+	if err := ctx.writeString(""); err != nil {
+		return fmt.Errorf("cannot send 'end of response' marker")
+	}
+	return nil
+}
+
+func (s *Server) processSearchV7(ctx *vmselectRequestCtx) error {
+	s.searchRequests.Inc()
+
+	// Read request.
+	if err := ctx.readSearchQuery(); err != nil {
+		return err
+	}
+
+	// Initiaialize the search.
+	startTime := time.Now()
+	bi, err := s.api.InitSearch(ctx.qt, &ctx.sq, ctx.deadline)
+	if err != nil {
+		return ctx.writeErrorMessage(err)
+	}
+	s.indexSearchDuration.UpdateDuration(startTime)
+	defer bi.MustClose()
+
+	// Send empty error message to vmselect.
+	if err := ctx.writeString(""); err != nil {
+		return fmt.Errorf("cannot send empty error message: %w", err)
+	}
+
+	// Send found blocks to vmselect.
+	blocksRead := 0
+	for bi.NextBlock(&ctx.mb) {
+		blocksRead++
+		s.metricBlocksRead.Inc()
+		s.metricRowsRead.Add(ctx.mb.Block.RowsCount())
+
+		ctx.dataBuf = ctx.mb.MarshalV7(ctx.dataBuf[:0])
+
 		if err := ctx.writeDataBufBytes(); err != nil {
 			return fmt.Errorf("cannot send MetricBlock: %w", err)
 		}
